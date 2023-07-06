@@ -63,7 +63,7 @@ def forward_data(source_socket, destination_socket):
 
 def start_proxy_server():
     proxy_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    proxy_server.bind(('127.0.0.1', 8097))
+    proxy_server.bind(('0.0.0.0', 8097))
     proxy_server.listen(5)
     print('Proxy server listening on port 8000')
 
