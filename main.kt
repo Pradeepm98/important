@@ -1,100 +1,74 @@
 import java.net.Socket
-import java.io.BufferedReader
-import java.io.InputStreamReader
+import java.net.ServerSocket
+import kotlin.concurrent.thread
+import java.io.InputStream
 import java.io.OutputStream
-import java.io.BufferedWriter
-import java.io.OutputStreamWriter
+import java.net.InetSocketAddress
+
+fun handleClient(clientSocket: Socket) {
+    val request = clientSocket.getInputStream().bufferedReader().readLine()
+    val firstLine = request.substringBefore("\r\n")
+    val method = firstLine.split(" ")[0]
+    println("Request method: $method")
+    println("Request line: $firstLine")
+
+    if (method == "CONNECT") {
+        // Extract the requested host and port
+        val hostPort = firstLine.split(" ")[1]
+        val (host, port) = hostPort.split(":")
+
+        // Create a connection to the requested server
+        val serverSocket = Socket(host, port.toInt())
+
+        // Send the client a success response
+        clientSocket.getOutputStream().write("HTTP/1.1 200 OK\r\n\r\n".toByteArray())
+
+        // Start forwarding data between client and server
+        thread { forwardData(clientSocket.getInputStream(), serverSocket.getOutputStream()) }
+        thread { forwardData(serverSocket.getInputStream(), clientSocket.getOutputStream()) }
+    } else {
+        // Handle regular HTTP requests
+        val host = firstLine.split(" ")[1].removePrefix("http://").removeSuffix("/")
+        println("Request host: $host")
+
+        // Create a connection to the target server on port 80
+        val serverSocket = Socket(host, 80)
+
+        println("Connected to $host")
+
+        // Forward the client's request to the server
+        serverSocket.getOutputStream().write(request.toByteArray())
+
+        // Wait for a second before forwarding the data
+        Thread.sleep(1000)
+
+        // Forward the server's response back to the client
+        thread { forwardData(serverSocket.getInputStream(), clientSocket.getOutputStream()) }
+    }
+}
+
+fun forwardData(sourceStream: InputStream, destinationStream: OutputStream) {
+    val buffer = ByteArray(4096)
+    var bytesRead: Int
+    while (sourceStream.read(buffer).also { bytesRead = it } != -1) {
+        destinationStream.write(buffer, 0, bytesRead)
+    }
+}
+
+fun startProxyServer() {
+    val proxyServer = ServerSocket()
+    proxyServer.bind(InetSocketAddress("::", 8001)) // Bind to both IPv4 and IPv6 addresses
+    println("Proxy server listening on port 8001")
+
+    while (true) {
+        val clientSocket = proxyServer.accept()
+        val clientAddress = clientSocket.remoteSocketAddress
+        println("Received connection from $clientAddress")
+        thread { handleClient(clientSocket) }
+    }
+}
 
 
 fun main() {
-    val serverIp = "13.127.87.242"
-    val serverPort = 3000
-
-    val clientSocket = Socket(serverIp, serverPort)
-
-
-    while (true) {  
-    handleRequest(clientSocket)
-    }
-    // clientSocket.close()
-}
-
-fun handleRequest(clientSocket: Socket) {
-    println("Connected to server")
-
-    val data = BufferedReader(InputStreamReader(clientSocket.getInputStream()))
-    val requestData = data.readLine().toByteArray(Charsets.UTF_8)
-    println("Request: ${String(requestData, Charsets.UTF_8)}")
-    val dataStr = String(requestData, Charsets.UTF_8)
-
-    val firstLine = dataStr.split('\n')[0]
-    val url = firstLine.split(' ')[1]
-
-    println("URL: $url")
-
-    val httpPos = url.indexOf("://")
-    val temp = if (httpPos == -1) url else url.substring(httpPos + 3)
-
-    val portPos = temp.indexOf(":")
-    var webServerPos = temp.indexOf("/")
-    if (webServerPos == -1) {
-        webServerPos = temp.length
-    }
-
-    val webServer = if (portPos == -1 || webServerPos < portPos) {
-        temp.substring(0, webServerPos)
-    } else {
-        temp.substring(0, portPos)
-    }
-
-    val port = if (portPos == -1 || webServerPos < portPos) {
-        80
-    } else {
-        temp.substring(portPos + 1, webServerPos).toInt()
-    }
-
-    println("Web Server: $webServer")
-    println("Port: $port")
-    // val hoste = "jsonip.com"
-    // val porte = 80
-
-    // Establish a socket connection to the server
-
-    val serverSocket = Socket(webServer, port)
-   // val serverSocket = Socket(webServer, port)
-    println("Connected to web server")
-    println(serverSocket)
-  
-
-    val request = "GET / HTTP/1.1\r\n" +
-            "Host: $webServer\r\n" +
-            "Connection: close\r\n" +
-            "\r\n"
-
-    val writer = BufferedWriter(OutputStreamWriter(serverSocket.getOutputStream()))
-    //print type of request
-    println("Request: $request")
-    writer.write(request)
-    writer.flush()
-
-    println("Request sent to web server")
-    
-    // serverOutputStream.write(requestData)
-    // serverOutputStream.flush()
-
-    val reply = serverSocket.getInputStream().readBytes()
-    clientSocket.getOutputStream().write(reply)
-    clientSocket.getOutputStream().flush()
-    // print reply
-    println("Reply: ${String(reply, Charsets.UTF_8)}")
-
-
-
-    val reader = BufferedReader(InputStreamReader(serverSocket.getInputStream()))
-    var line: String?
-    while (reader.readLine().also { line = it } != null) {
-        println(line)
-    }
-
-    //serverSocket.close()
+    startProxyServer()
 }
